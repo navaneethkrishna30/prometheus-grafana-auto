@@ -20,20 +20,16 @@ jobs:
         terraform_version: 1.5.6
         cli_config_credentials_token: ${{ secrets.AWS_ACCESS_KEY_ID }}
 
-    - name: Initialize Terraform
+    - name: Initialize Terraform and Get Public IP
+      id: terraform
       run: |
-          terraform init
-          terraform apply -auto-approve
-          terraform output -json > output.json
+        terraform init
+        terraform apply -auto-approve
+        PUBLIC_IP=$(terraform output -json | jq -r '.public_ip.value')
+        echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-    - name: Get EC2 Public IP
-      id: ec2-ip
-      run: |
-        PUBLIC_IP=$(terraform output -json | jq -r '.public_ip.value')
-        echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
 
     - name: Configure SSH Key
       run: |
@@ -46,5 +42,5 @@ jobs:
     - name: Run Ansible Playbook
       run: |
         ansible-playbook ansible-playbook.yml \
-          --inventory "ec2-user@${{ steps.ec2-ip.outputs.public_ip }}," \
+          --inventory "ec2-user@${{ env.PUBLIC_IP }}," \
           --key-file ~/.ssh/id_rsa
