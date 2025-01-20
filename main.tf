@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "ap-south-1"  # Change to your region
+  region = "ap-south-1"
 }
 
 resource "aws_security_group" "monitoring_sg" {
@@ -8,8 +8,8 @@ resource "aws_security_group" "monitoring_sg" {
 
   ingress {
     description = "Allow HTTP traffic for Prometheus"
-    from_port   = 9090
-    to_port     = 9090
+    from_port   = 9000
+    to_port     = 9000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
