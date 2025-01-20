@@ -25,7 +25,7 @@ jobs:
       run: |
         terraform init
         terraform apply -auto-approve
-        PUBLIC_IP=$(terraform output -json | jq -r '.public_ip.value')
+        PUBLIC_IP=$(terraform output -json instance_ips | jq -r '.[0]')
         echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
