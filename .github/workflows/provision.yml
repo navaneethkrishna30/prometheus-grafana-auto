@@ -1,0 +1,40 @@
+name: Provision EC2 and Configure Monitoring Tools
+
+on:
+  push:
+    branches:
+      - new
+
+jobs:
+  provision:
+    name: Provision EC2 and Setup Monitoring
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.5.6
+
+    - name: Initialize Terraform
+      run: terraform init
+
+    - name: Apply Terraform
+      run: terraform apply -auto-approve
+
+    - name: Configure SSH Key
+      run: |
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+
+    - name: Install Ansible
+      run: sudo apt update && sudo apt install -y ansible
+
+    - name: Run Ansible Playbook
+      run: |
+        ansible-playbook ansible-playbook.yml \
+          --inventory "ec2-user@${{ secrets.EC2_PUBLIC_IP }}," \
+          --key-file ~/.ssh/id_rsa

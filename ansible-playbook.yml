@@ -1,0 +1,160 @@
+---
+- hosts: all
+  become: true
+  vars:
+    grafana_user: "{{ ansible_hostname | replace('-', '_') | lower }}_admin"
+    grafana_password: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters,digits') }}"
+    dashboard_json_url: "https://raw.githubusercontent.com/your-repo/your-branch/your-dashboard.json"
+    prometheus_config: |
+      global:
+        scrape_interval: 15s
+      scrape_configs:
+        - job_name: 'prometheus'
+          static_configs:
+            - targets: ['localhost:9090']
+        - job_name: 'node_exporter'
+          static_configs:
+            - targets: ['localhost:9100']
+  tasks:
+    ### SYSTEM UPDATE ###
+    - name: Update and upgrade the system
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    ### INSTALL REQUIRED TOOLS ###
+    - name: Install required packages
+      apt:
+        name:
+          - wget
+          - git
+          - curl
+          - software-properties-common
+        state: present
+
+    ### INSTALL PROMETHEUS ###
+    - name: Install Prometheus
+      shell: |
+        wget https://github.com/prometheus/prometheus/releases/download/v2.46.0/prometheus-2.46.0.linux-amd64.tar.gz
+        tar -xvf prometheus-2.46.0.linux-amd64.tar.gz
+        mv prometheus-2.46.0.linux-amd64 /usr/local/prometheus
+        ln -s /usr/local/prometheus/prometheus /usr/bin/prometheus
+        ln -s /usr/local/prometheus/promtool /usr/bin/promtool
+        mkdir -p /etc/prometheus /var/lib/prometheus
+      args:
+        creates: /usr/local/prometheus/prometheus
+
+    - name: Configure Prometheus
+      copy:
+        dest: /etc/prometheus/prometheus.yml
+        content: "{{ prometheus_config }}"
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - Restart Prometheus
+
+    - name: Configure Prometheus as a systemd service
+      copy:
+        dest: /etc/systemd/system/prometheus.service
+        content: |
+          [Unit]
+          Description=Prometheus Monitoring System
+          After=network.target
+
+          [Service]
+          User=root
+          ExecStart=/usr/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Restart Prometheus
+
+    ### INSTALL NODE EXPORTER ###
+    - name: Install Node Exporter
+      shell: |
+        wget https://github.com/prometheus/node_exporter/releases/download/v1.6.0/node_exporter-1.6.0.linux-amd64.tar.gz
+        tar -xvf node_exporter-1.6.0.linux-amd64.tar.gz
+        mv node_exporter-1.6.0.linux-amd64 /usr/local/node_exporter
+        ln -s /usr/local/node_exporter/node_exporter /usr/bin/node_exporter
+      args:
+        creates: /usr/local/node_exporter/node_exporter
+
+    - name: Configure Node Exporter as a systemd service
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Node Exporter
+          After=network.target
+
+          [Service]
+          User=root
+          ExecStart=/usr/bin/node_exporter
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Restart Node Exporter
+
+    ### INSTALL GRAFANA ###
+    - name: Install Grafana
+      shell: |
+        wget https://dl.grafana.com/oss/release/grafana_10.1.3_amd64.deb
+        apt install -y ./grafana_10.1.3_amd64.deb
+      args:
+        creates: /usr/sbin/grafana-server
+
+    - name: Enable and start Grafana as a systemd service
+      shell: |
+        systemctl enable grafana-server
+        systemctl start grafana-server
+
+    - name: Configure Grafana admin credentials
+      shell: grafana-cli admin reset-admin-password "{{ grafana_password }}"
+
+    - name: Save Grafana credentials to a file
+      copy:
+        dest: /root/grafana_credentials.txt
+        content: |
+          Grafana Admin Username: {{ grafana_user }}
+          Grafana Admin Password: {{ grafana_password }}
+        owner: root
+        group: root
+        mode: '0600'
+
+    ### IMPORT GRAFANA DASHBOARD ###
+    - name: Download Grafana dashboard JSON
+      get_url:
+        url: "{{ dashboard_json_url }}"
+        dest: /tmp/dashboard.json
+
+    - name: Import Grafana dashboard
+      uri:
+        url: "http://localhost:3000/api/dashboards/db"
+        method: POST
+        user: admin
+        password: "{{ grafana_password }}"
+        headers:
+          Content-Type: "application/json"
+        body: "{{ lookup('file', '/tmp/dashboard.json') }}"
+        body_format: json
+      register: dashboard_import
+
+    - name: Debug dashboard import response
+      debug:
+        var: dashboard_import
+
+  handlers:
+    - name: Restart Prometheus
+      service:
+        name: prometheus
+        state: restarted
+
+    - name: Restart Node Exporter
+      service:
+        name: node_exporter
+        state: restarted
