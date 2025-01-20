@@ -3,7 +3,7 @@ name: Provision EC2 and Configure Monitoring Tools
 on:
   push:
     branches:
-      - new
+      - main
 
 jobs:
   provision:
@@ -18,12 +18,21 @@ jobs:
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: 1.5.6
+        cli_config_credentials_token: ${{ secrets.AWS_ACCESS_KEY_ID }}
 
     - name: Initialize Terraform
-      run: terraform init
+      run: |
+          terraform init
+          terraform apply -auto-approve
+          terraform output -json > output.json
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-    - name: Apply Terraform
-      run: terraform apply -auto-approve
+    - name: Get EC2 Public IP
+      id: ec2-ip
+      run: |
+        echo "public_ip=$(terraform output -raw public_ip)" >> $GITHUB_OUTPUT
 
     - name: Configure SSH Key
       run: |
@@ -36,5 +45,5 @@ jobs:
     - name: Run Ansible Playbook
       run: |
         ansible-playbook ansible-playbook.yml \
-          --inventory "ec2-user@${{ secrets.EC2_PUBLIC_IP }}," \
+          --inventory "ec2-user@${{ steps.ec2-ip.outputs.public_ip }}," \
           --key-file ~/.ssh/id_rsa
